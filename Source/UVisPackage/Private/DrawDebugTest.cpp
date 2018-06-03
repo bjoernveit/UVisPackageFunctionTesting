@@ -9,18 +9,17 @@ ADrawDebugTest::ADrawDebugTest()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
-
-	TrajectoryManager = NewObject<UTrajectoryManager>();
 }
 
 // Called when the game starts or when spawned
 void ADrawDebugTest::BeginPlay()
 {
 	Super::BeginPlay();
+	TrajectoryManager = NewObject<UTrajectoryManager>();
 
 	for (auto Actor : TracedActors)
 	{
-		TrajectoryManager->CreateMulticolorTrajectory(Actor->GetRootComponent(), TrajectoryType::Cylinder, FColor::Red, FColor::Green);
+		TrajectoryManager->CreateMulticolorTrajectory(Actor->GetRootComponent(), ETrajectoryType::Cylinder, FColor::Red, FColor::Green);
 	}
 
 } 

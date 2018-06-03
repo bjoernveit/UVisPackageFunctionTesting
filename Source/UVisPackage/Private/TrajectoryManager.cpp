@@ -1,49 +1,76 @@
 #include "TrajectoryManager.h"
 #include "ConstructorHelpers.h"
+#include "Kismet/GameplayStatics.h"
 
 
-void UTrajectoryManager::CreateTrajectory(USceneComponent* ComponentToFollow, TrajectoryType Type, FColor Color,
+
+UTrajectoryManager::UTrajectoryManager()
+{
+	ConstructorHelpers::FObjectFinder<UParticleSystem> PSLine(TEXT("ParticleSystem'/UVisPackage/Particles/P_Ribbon.P_Ribbon'"));
+	ConstructorHelpers::FObjectFinder<UParticleSystem> PSCube(TEXT("ParticleSystem'/UVisPackage/Particles/P_Cube_Trail.P_Cube_Trail'"));
+	ConstructorHelpers::FObjectFinder<UParticleSystem> PSSphere(TEXT("ParticleSystem'/UVisPackage/Particles/P_Sphere_Trail.P_Sphere_Trail'"));
+	ConstructorHelpers::FObjectFinder<UParticleSystem> PSCylinder(TEXT("ParticleSystem'/UVisPackage/Particles/P_Cylinder_Trail.P_Cylinder_Trail'"));
+
+	TrajectoryTypeToPS.Empty();
+	TrajectoryTypeToPS.Add(ETrajectoryType::Line, PSLine.Object);
+	TrajectoryTypeToPS.Add(ETrajectoryType::Square, PSCube.Object);
+	TrajectoryTypeToPS.Add(ETrajectoryType::Sphere, PSSphere.Object);
+	TrajectoryTypeToPS.Add(ETrajectoryType::Cylinder, PSCylinder.Object);
+}
+
+void UTrajectoryManager::CreateTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type, FColor Color,
 	double TimeToFollow, double TimeUntilFade)
 {
 	CreateMulticolorTrajectory(ComponentToFollow, Type, Color, Color, TimeToFollow, TimeUntilFade);
 }
 
-void UTrajectoryManager::CreateMulticolorTrajectory(USceneComponent* ComponentToFollow, TrajectoryType Type,
-	FColor StartColor, FColor EndColor, double TimeToFollow, double TimeUntilFade)
+void UTrajectoryManager::CreateMulticolorTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type,
+	FColor StartColor, FColor EndColor, double TimeToFollow, double TimeUntilFade) 
 {
-	TraceInformation TraceInf;
-	TraceInf.PSC = CreateParticleComponent(Type);
+	FTraceInformation TraceInf;
+	TraceInf.PSC = CreateParticleComponent(Type, ComponentToFollow->GetOwner());
+	
 	TraceInf.TotalTraceTime = TimeToFollow;
 	TraceInf.TimeUntilFade = TimeUntilFade;
 	TraceInf.AliveFor = 0.f;
 	TraceInf.StartColor = StartColor;
 	TraceInf.EndColor = EndColor;
+
+	TraceInf.PSC->SetColorParameter(TEXT("Color"), StartColor);
+	TraceInf.PSC->bAutoActivate = false;	
+	TraceInf.PSC->AttachToComponent(ComponentToFollow,
+		FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true),
+		ComponentToFollow->GetFName());
+	TraceInf.PSC->RegisterComponent();
+	TraceInf.PSC->SetRelativeLocationAndRotation(FVector(0, 0, 0), FRotator::ZeroRotator);
+	TraceInf.PSC->ActivateSystem();
 	
-	TraceInf.PSC->SetColorParameter(TEXT("Color"), StartColor); 
-	TraceInf.PSC->bAutoActivate = false;
-	TraceInf.PSC->AttachToComponent(ComponentToFollow, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, true));
 	ActiveTraces.Add(ComponentToFollow, TraceInf);
-	TraceInf.PSC->Activate();
 }
 
 void UTrajectoryManager::Tick(float DeltaTime)
 {
-	for(auto Entry: ActiveTraces)
+	TMap<USceneComponent*, FTraceInformation> NewActiveTraces;
+	for (auto Entry : ActiveTraces)
 	{
-		TraceInformation TraceInf = Entry.Value;
+		FTraceInformation TraceInf = Entry.Value;
 		USceneComponent* Component = Entry.Key;
-
+		TraceInf.AliveFor += DeltaTime;
 		TraceInf.PSC->SetColorParameter(TEXT("Color"), GetCurrentColor(TraceInf));
-		//TODO: TraceInf.PSC->Set(TEXT("Rotation"), );
-
-		if (TraceInf.AliveFor > TraceInf.TotalTraceTime)
+		if (TraceInf.AliveFor > TraceInf.TotalTraceTime && TraceInf.TotalTraceTime > 0.f)
 		{
 			TraceInf.PSC->Deactivate();
 			TraceInf.PSC->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 			ActiveTraces.Remove(Component);
+		} 
+		else
+		{
+			NewActiveTraces.Add(Component, TraceInf);
 		}
 
 	}
+
+	ActiveTraces = NewActiveTraces;
 }
 
 bool UTrajectoryManager::IsTickable() const
@@ -66,20 +93,14 @@ TStatId UTrajectoryManager::GetStatId() const
 	return TStatId();
 }
 
-UParticleSystemComponent* UTrajectoryManager::CreateParticleComponent(TrajectoryType Type)
+UParticleSystemComponent* UTrajectoryManager::CreateParticleComponent(ETrajectoryType Type, AActor* Owner)
 {
-
-	ConstructorHelpers::FObjectFinder<UParticleSystem> PS(**TrajectoryTypeToAssetPath.Find(Type));
-	UParticleSystemComponent* PSC = CreateDefaultSubobject<UParticleSystemComponent>(TEXT("MyPSC"));
-	PSC->SetTemplate(PS.Object);
-
-	PSC->bAutoActivate = false;
-	PSC->SetHiddenInGame(false);
-
+	UParticleSystemComponent* PSC = NewObject<UParticleSystemComponent>(Owner, TEXT("TrajectoryPSC"));
+	PSC->SetTemplate(TrajectoryTypeToPS.FindChecked(Type));	
 	return PSC;
 }
 
-FColor UTrajectoryManager::GetCurrentColor(TraceInformation TraceInf)
+FColor UTrajectoryManager::GetCurrentColor(FTraceInformation& TraceInf)
 {
 	if (TraceInf.StartColor == TraceInf.EndColor)
 		return TraceInf.StartColor;

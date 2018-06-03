@@ -6,16 +6,20 @@
 #include "TrajectoryManager.generated.h"
 
 UENUM()
-enum class TrajectoryType : uint8
+enum class ETrajectoryType : uint8
 {
 	Line,
 	Square,
 	Sphere,
 	Cylinder
 };
+inline uint8 GetTypeHash(const ETrajectoryType A)
+{
+	return (uint8)A;
+}
 
 USTRUCT()
-struct TraceInformation
+struct FTraceInformation
 {
 	GENERATED_BODY()
 
@@ -31,6 +35,16 @@ struct TraceInformation
 		double TotalTraceTime;
 	UPROPERTY()
 		double TimeUntilFade;
+
+	FTraceInformation()
+	{
+		PSC = nullptr;
+		StartColor = FColor::Black;
+		EndColor = FColor::Black;
+		AliveFor = 0;
+		TotalTraceTime = -1.f;
+		TimeUntilFade = -1.f;
+	}
 };
 
 
@@ -41,21 +55,12 @@ class UVISPACKAGE_API UTrajectoryManager : public UObject, public FTickableGameO
 
 public:
 
+	UTrajectoryManager();
 
-
-	UTrajectoryManager()
-	{
-		TrajectoryTypeToAssetPath.Empty();
-		TrajectoryTypeToAssetPath.Add(TrajectoryType::Line, TEXT("ParticleSystem'/UVisPackage/Particles/P_Ribbon.P_Ribbon'"));
-		TrajectoryTypeToAssetPath.Add(TrajectoryType::Square, TEXT("ParticleSystem'/UVisPackage/Particles/P_Cube_Trail.P_Cube_Trail'"));
-		TrajectoryTypeToAssetPath.Add(TrajectoryType::Sphere, TEXT("ParticleSystem'/UVisPackage/Particles/P_Sphere_Trail.P_Sphere_Trail'"));
-		TrajectoryTypeToAssetPath.Add(TrajectoryType::Cylinder, TEXT("ParticleSystem'/UVisPackage/Particles/P_Cylinder_Trail.P_Cylinder_Trail'"));
-	}
-
-	void CreateTrajectory(USceneComponent* ComponentToFollow, TrajectoryType Type, FColor Color,
+	void CreateTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type, FColor Color,
 		double TimeToFollow = -1.f, double TimeUntilFade = -1.f);
 
-	void CreateMulticolorTrajectory(USceneComponent* ComponentToFollow, TrajectoryType Type,
+	void CreateMulticolorTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type,
 		FColor StartColor, FColor EndColor,
 		double TimeToFollow = -1.f, double TimeUntilFade = -1.f);
 
@@ -64,18 +69,17 @@ public:
 	bool IsTickableInEditor() const override;
 	bool IsTickableWhenPaused() const override;
 	TStatId GetStatId() const override;
-
-private:
-
-
-	UPROPERTY()
-		TMap<TrajectoryType, FString> TrajectoryTypeToAssetPath;
+	
+	UPROPERTY(EditAnywhere)
+		TMap<ETrajectoryType, UParticleSystem*> TrajectoryTypeToPS;
 
 	UPROPERTY()
-		TMap<USceneComponent*, TraceInformation> ActiveTraces;
+		TMap<USceneComponent*, FTraceInformation> ActiveTraces;
+	UPROPERTY(EditAnywhere)
+		UParticleSystemComponent * DefaultPSC;
+	private:
+	UParticleSystemComponent* CreateParticleComponent(ETrajectoryType Type, AActor* Owner);
 
-	UParticleSystemComponent* CreateParticleComponent(TrajectoryType Type);
-
-	FColor GetCurrentColor(TraceInformation TraceInf);
+	FColor GetCurrentColor(struct FTraceInformation& TraceInf);
 
 };
