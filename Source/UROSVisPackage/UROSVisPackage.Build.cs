@@ -2,15 +2,15 @@
 
 using UnrealBuildTool;
 
-public class UVisPackage : ModuleRules
+public class UROSVisPackage : ModuleRules
 {
-	public UVisPackage(ReadOnlyTargetRules Target) : base(Target)
+	public UROSVisPackage(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		
 		PublicIncludePaths.AddRange(
 			new string[] {
-				"UVisPackage/Public"
+				"UROSVisPackage/Public",
 				// ... add public include paths required here ...
 			}
 			);
@@ -18,8 +18,7 @@ public class UVisPackage : ModuleRules
 		
 		PrivateIncludePaths.AddRange(
 			new string[] {
-				"UVisPackage/Private",
-
+				"UROSVisPackage/Private",
 				// ... add other private include paths required here ...
 			}
 			);
@@ -29,8 +28,10 @@ public class UVisPackage : ModuleRules
 			new string[]
 			{
 				"Core",
-                "GPUPointCloudRenderer",
-                "GPUPointCloudRendererEditor",
+                "UROSBridge",
+                "UTags",
+                "UIds",
+                "UVisPackage",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -43,8 +44,15 @@ public class UVisPackage : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
-                "GPUPointCloudRenderer",
-                "GPUPointCloudRendererEditor",
+                "Networking",
+                "Sockets",
+                "PacketHandler",
+                "libWebSockets",
+                "OpenSSL",
+                "zlib",
+                "Json",
+                "JsonUtilities",
+                "UVisPackage",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

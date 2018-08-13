@@ -1,119 +1,110 @@
 #include "TrajectoryManager.h"
 #include "ConstructorHelpers.h"
 #include "Kismet/GameplayStatics.h"
-
+#include "GPUPointCloudRendererComponent.h"
+#include "Engine/World.h"
+#include "StaticHelpers.h"
 
 
 UTrajectoryManager::UTrajectoryManager()
 {
-	ConstructorHelpers::FObjectFinder<UParticleSystem> PSLine(TEXT("ParticleSystem'/UVisPackage/Particles/P_Ribbon.P_Ribbon'"));
-	ConstructorHelpers::FObjectFinder<UParticleSystem> PSCube(TEXT("ParticleSystem'/UVisPackage/Particles/P_Cube_Trail.P_Cube_Trail'"));
-	ConstructorHelpers::FObjectFinder<UParticleSystem> PSSphere(TEXT("ParticleSystem'/UVisPackage/Particles/P_Sphere_Trail.P_Sphere_Trail'"));
-	ConstructorHelpers::FObjectFinder<UParticleSystem> PSCylinder(TEXT("ParticleSystem'/UVisPackage/Particles/P_Cylinder_Trail.P_Cylinder_Trail'"));
-
-	TrajectoryTypeToPS.Empty();
-	TrajectoryTypeToPS.Add(ETrajectoryType::Line, PSLine.Object);
-	TrajectoryTypeToPS.Add(ETrajectoryType::Square, PSCube.Object);
-	TrajectoryTypeToPS.Add(ETrajectoryType::Sphere, PSSphere.Object);
-	TrajectoryTypeToPS.Add(ETrajectoryType::Cylinder, PSCylinder.Object);
 }
 
-void UTrajectoryManager::CreateTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type, FColor Color,
-	double TimeToFollow, double TimeUntilFade)
+
+AVisualMarker* UTrajectoryManager::SpawnTrajectoryFromPoints(TArray<FVector>& Points, FColor Color)
 {
-	CreateMulticolorTrajectory(ComponentToFollow, Type, Color, Color, TimeToFollow, TimeUntilFade);
+	return SpawnTrajectoryFromPoints(Points, Color, Color);
 }
 
-void UTrajectoryManager::CreateMulticolorTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type,
-	FColor StartColor, FColor EndColor, double TimeToFollow, double TimeUntilFade) 
+AVisualMarker* UTrajectoryManager::SpawnTrajectoryFromPoints(TArray<FVector>& Points, FColor ColorBegin, FColor ColorEnd)
 {
-	FTraceInformation TraceInf;
-	TraceInf.PSC = CreateParticleComponent(Type, ComponentToFollow->GetOwner());
-	
-	TraceInf.TotalTraceTime = TimeToFollow;
-	TraceInf.TimeUntilFade = TimeUntilFade;
-	TraceInf.AliveFor = 0.f;
-	TraceInf.StartColor = StartColor;
-	TraceInf.EndColor = EndColor;
-
-	TraceInf.PSC->SetColorParameter(TEXT("Color"), StartColor);
-	TraceInf.PSC->bAutoActivate = false;	
-	TraceInf.PSC->AttachToComponent(ComponentToFollow,
-		FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true),
-		ComponentToFollow->GetFName());
-	TraceInf.PSC->RegisterComponent();
-	TraceInf.PSC->SetRelativeLocationAndRotation(FVector(0, 0, 0), FRotator::ZeroRotator);
-	TraceInf.PSC->ActivateSystem();
-	
-	ActiveTraces.Add(ComponentToFollow, TraceInf);
-}
-
-void UTrajectoryManager::Tick(float DeltaTime)
-{
-	TMap<USceneComponent*, FTraceInformation> NewActiveTraces;
-	for (auto Entry : ActiveTraces)
+	if (!GetWorld())
 	{
-		FTraceInformation TraceInf = Entry.Value;
-		USceneComponent* Component = Entry.Key;
-		TraceInf.AliveFor += DeltaTime;
-		TraceInf.PSC->SetColorParameter(TEXT("Color"), GetCurrentColor(TraceInf));
-		if (TraceInf.AliveFor > TraceInf.TotalTraceTime && TraceInf.TotalTraceTime > 0.f)
-		{
-			TraceInf.PSC->Deactivate();
-			TraceInf.PSC->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
-			ActiveTraces.Remove(Component);
-		} 
-		else
-		{
-			NewActiveTraces.Add(Component, TraceInf);
-		}
-
+		UE_LOG(LogTemp, Error, TEXT("[%s]: This object needs to have  an outer object, that GetWorld() can be successfully be called on."), *FString(__FUNCTION__));
+		return nullptr;
 	}
 
-	ActiveTraces = NewActiveTraces;
+	AVisualMarker* TrajectoryActor;
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.bNoFail = true;
+	SpawnParams.OverrideLevel = GetWorld()->GetCurrentLevel();
+
+	if (IsInGameThread())
+	{
+		TrajectoryActor = GetWorld()->SpawnActor<AVisualMarker>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+	}
+	else
+	{
+
+		FGraphEventRef Task = FFunctionGraphTask::CreateAndDispatchWhenReady([&]()
+		{
+			// Setup BaseActor and PCRComponent
+			TrajectoryActor = GetWorld()->SpawnActor<AVisualMarker>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+
+		}, TStatId(), nullptr, ENamedThreads::GameThread);
+
+		//wait code above to complete
+		FTaskGraphInterface::Get().WaitUntilTaskCompletes(Task);
+	}
+
+	return AddTrajectoryToActor(*TrajectoryActor, Points, ColorBegin, ColorEnd) ? TrajectoryActor : nullptr;
 }
 
-bool UTrajectoryManager::IsTickable() const
+bool UTrajectoryManager::AddTrajectoryToActor(AActor& Marker, TArray<FVector>& Points, FColor Color)
 {
+	return AddTrajectoryToActor(Marker, Points, Color, Color);
+}
+
+
+bool UTrajectoryManager::AddTrajectoryToActor(AActor& Actor, TArray<FVector>& Points, FColor ColorBegin, FColor ColorEnd)
+{
+
+	if (IsInGameThread())
+	{
+		return AddTrajectoryToActorInternal(Actor, Points, ColorBegin, ColorEnd);
+	}
+	else
+	{
+		bool bSuccess;
+		FGraphEventRef Task = FFunctionGraphTask::CreateAndDispatchWhenReady([&]()
+		{
+			bSuccess = AddTrajectoryToActorInternal(Actor, Points, ColorBegin, ColorEnd);
+		}, TStatId(), nullptr, ENamedThreads::GameThread);
+
+		//wait code above to complete
+		FTaskGraphInterface::Get().WaitUntilTaskCompletes(Task);
+		return bSuccess;
+	}
+}
+
+
+
+bool UTrajectoryManager::AddTrajectoryToActorInternal(AActor& Actor, TArray<FVector>& Points, FColor ColorBegin, FColor ColorEnd)
+{
+
+	UGPUPointCloudRendererComponent* PointCloudRendererComponent = NewObject<UGPUPointCloudRendererComponent>(&Actor);
+	
+	// Prepare point data
+	// This is a potential bottleneck on the gamethread, but switching back and forth,
+	// caused some unexpected nullpointer problems.
+	int i = 0;
+	for (auto Point : Points)
+	{
+		i++;
+		PointsAsColor.Add(FLinearColor(Point.Z, Point.X, Point.Y, Point.Z));
+		double Fraction = i / static_cast<double>(Points.Num());
+		ColorOfPoint.Add(StaticHelpers::GetInBetweenColor(ColorBegin, ColorEnd, Fraction));
+	}
+	
+	// Pass data to PCR
+	PointCloudRendererComponent->SetDynamicProperties(1, 1, 10);
+
+	PointCloudRendererComponent->SetInputAndConvert1(PointsAsColor, ColorOfPoint);
+
+	//Attach and register
+	PointCloudRendererComponent->bTickInEditor = true;
+	PointCloudRendererComponent->SetupAttachment(Actor.GetRootComponent());
+	PointCloudRendererComponent->RegisterComponent();
 	return true;
 }
 
-bool UTrajectoryManager::IsTickableInEditor() const
-{
-	return false;
-}
-
-bool UTrajectoryManager::IsTickableWhenPaused() const
-{
-	return false;
-}
-
-TStatId UTrajectoryManager::GetStatId() const
-{
-	return TStatId();
-}
-
-UParticleSystemComponent* UTrajectoryManager::CreateParticleComponent(ETrajectoryType Type, AActor* Owner)
-{
-	UParticleSystemComponent* PSC = NewObject<UParticleSystemComponent>(Owner, TEXT("TrajectoryPSC"));
-	PSC->SetTemplate(TrajectoryTypeToPS.FindChecked(Type));	
-	return PSC;
-}
-
-FColor UTrajectoryManager::GetCurrentColor(FTraceInformation& TraceInf)
-{
-	if (TraceInf.StartColor == TraceInf.EndColor)
-		return TraceInf.StartColor;
-
-	if (TraceInf.AliveFor < TraceInf.TotalTraceTime)
-	{
-		double Fraction = TraceInf.AliveFor / TraceInf.TotalTraceTime;
-		uint8 NewA = TraceInf.StartColor.A + ((TraceInf.EndColor.A - TraceInf.StartColor.A) *  Fraction);
-		uint8 NewR = TraceInf.StartColor.R + ((TraceInf.EndColor.R - TraceInf.StartColor.R) *  Fraction);
-		uint8 NewG = TraceInf.StartColor.G + ((TraceInf.EndColor.G - TraceInf.StartColor.G) *  Fraction);
-		uint8 NewB = TraceInf.StartColor.B + ((TraceInf.EndColor.B - TraceInf.StartColor.B) *  Fraction);
-
-		return FColor(NewR, NewG, NewB, NewA);
-	}
-	return TraceInf.EndColor;
-}

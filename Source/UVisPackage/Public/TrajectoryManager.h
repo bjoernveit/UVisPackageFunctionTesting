@@ -1,8 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
-#include "Particles/ParticleSystemComponent.h"
-#include "Tickable.h"
+#include "VisualMarker.h"
 #include "TrajectoryManager.generated.h"
 
 UENUM()
@@ -13,73 +12,31 @@ enum class ETrajectoryType : uint8
 	Sphere,
 	Cylinder
 };
-inline uint8 GetTypeHash(const ETrajectoryType A)
-{
-	return (uint8)A;
-}
-
-USTRUCT()
-struct FTraceInformation
-{
-	GENERATED_BODY()
-
-	UPROPERTY()
-		UParticleSystemComponent* PSC;
-	UPROPERTY()
-		FColor StartColor;
-	UPROPERTY()
-		FColor EndColor;
-	UPROPERTY()
-		double AliveFor;
-	UPROPERTY()
-		double TotalTraceTime;
-	UPROPERTY()
-		double TimeUntilFade;
-
-	FTraceInformation()
-	{
-		PSC = nullptr;
-		StartColor = FColor::Black;
-		EndColor = FColor::Black;
-		AliveFor = 0;
-		TotalTraceTime = -1.f;
-		TimeUntilFade = -1.f;
-	}
-};
-
 
 UCLASS()
-class UVISPACKAGE_API UTrajectoryManager : public UObject, public FTickableGameObject
+class UVISPACKAGE_API UTrajectoryManager : public UObject
 {
 	GENERATED_BODY()
 
 public:
 
+	/* Make sure to provoid this class with a proper outer object, so it can call getWorld() */
 	UTrajectoryManager();
+	~UTrajectoryManager() {};
 
-	void CreateTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type, FColor Color,
-		double TimeToFollow = -1.f, double TimeUntilFade = -1.f);
+	AVisualMarker* SpawnTrajectoryFromPoints(TArray<FVector>& Points, FColor Color);
 
-	void CreateMulticolorTrajectory(USceneComponent* ComponentToFollow, ETrajectoryType Type,
-		FColor StartColor, FColor EndColor,
-		double TimeToFollow = -1.f, double TimeUntilFade = -1.f);
+	AVisualMarker* SpawnTrajectoryFromPoints(TArray<FVector>& Points, FColor ColorStart, FColor ColorEnd);
+	bool AddTrajectoryToActor(AActor& Actor, TArray<FVector>& Points, FColor Color);
+	bool AddTrajectoryToActor(AActor& Actor, TArray<FVector>& Points, FColor ColorBegin, FColor ColorEnd);
 
-	void Tick(float DeltaTime) override;
-	bool IsTickable() const override;
-	bool IsTickableInEditor() const override;
-	bool IsTickableWhenPaused() const override;
-	TStatId GetStatId() const override;
 	
-	UPROPERTY(EditAnywhere)
-		TMap<ETrajectoryType, UParticleSystem*> TrajectoryTypeToPS;
-
 	UPROPERTY()
-		TMap<USceneComponent*, FTraceInformation> ActiveTraces;
-	UPROPERTY(EditAnywhere)
-		UParticleSystemComponent * DefaultPSC;
-	private:
-	UParticleSystemComponent* CreateParticleComponent(ETrajectoryType Type, AActor* Owner);
+		TArray<FLinearColor> PointsAsColor;
+	UPROPERTY()
+		TArray<FColor> ColorOfPoint;
 
-	FColor GetCurrentColor(struct FTraceInformation& TraceInf);
+private:
 
+	bool AddTrajectoryToActorInternal(AActor& Actor, TArray<FVector>& Points, FColor ColorBegin, FColor ColorEnd);
 };
